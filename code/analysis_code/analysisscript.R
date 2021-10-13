@@ -1,69 +1,74 @@
 ###############################
-# analysis script
-#
-#this script loads the processed, cleaned data, does a simple analysis
-#and saves the results to the results folder
+# Analysis script
 
 #load needed packages. make sure they are installed.
-library(ggplot2) #for plotting
-library(broom) #for cleaning up output from lm()
-library(here) #for data loading/saving
+library(tidyverse)
+library(tidymodels)
 
 #path to data
-#note the use of the here() package and not absolute paths
 data_location <- here::here("data","processed_data","processeddata.rds")
 
 #load data. 
-mydata <- readRDS(data_location)
+df <- readRDS(data_location)
 
-######################################
-#Data exploration/description
-######################################
-#I'm using basic R commands here.
-#Lots of good packages exist to do more.
-#For instance check out the tableone or skimr packages
+#####Fitting the linear model with the continuous outcome and important predictor
+#Continuous outcome: BodyTemp
+#Predictor: RunnyNose
 
-#summarize data 
-mysummary = summary(mydata)
+linmod <- linear_reg() %>% #Setting up the linear model engine and function
+  set_engine("lm") %>%
+  set_mode("regression")
 
-#look at summary
-print(mysummary)
-
-#do the same, but with a bit of trickery to get things into the 
-#shape of a data frame (for easier saving/showing in manuscript)
-summary_df = data.frame(do.call(cbind, lapply(mydata, summary)))
-
-#save data frame table to file for later use in manuscript
-summarytable_file = here("results", "summarytable.rds")
-saveRDS(summary_df, file = summarytable_file)
+mod1 <- linmod %>% #Running the linear model 
+  fit(BodyTemp ~ RunnyNose, data = df)
 
 
-#make a scatterplot of data
-#we also add a linear regression line to it
-p1 <- mydata %>% ggplot(aes(x=Height, y=Weight)) + geom_point() + geom_smooth(method='lm')
+#####Fitting the linear model with the continuous outcome and all predictors
 
-#look at figure
-plot(p1)
+mod2 <- linmod %>% #Running the linear model
+  fit(BodyTemp ~ ., data = df)
 
-#save figure
-figure_file = here("results","resultfigure.png")
-ggsave(filename = figure_file, plot=p1) 
+#####Comparing model results
+CompMod1 <- anova(mod1$fit, mod2$fit, test = "Chisq")
 
-######################################
-#Data fitting/statistical analysis
-######################################
+glance(mod1)
+glance(mod2)
 
-# fit linear model
-lmfit <- lm(Weight ~ Height, mydata)  
+#The test above tells us that we should use the more complex model, and 
+#glancing at the two linear models, model 2 (the more complex one) has
+#a lower AIC value. Both models are statistically significant with a p-value < 0.05.
 
-# place results from fit into a data frame with the tidy function
-lmtable <- broom::tidy(lmfit)
 
-#look at fit results
-print(lmtable)
+#####Fitting logistic model with categorical outcome and important predictor
+#Categorical outcome: Nausea
+#Predictor: RunnyNose
 
-# save fit results table  
-table_file = here("results", "resulttable.rds")
-saveRDS(lmtable, file = table_file)
+logmod <- logistic_mod <- logistic_reg() %>% #Setting up the logistic model
+  set_engine("glm") %>%
+  set_mode("classification")
+
+mod3 <- logmod %>% #Running the model
+  fit(Nausea ~ RunnyNose, data = df)
+
+#####Fitting logistic model with Nausea and all predictors
+
+mod4 <- logmod %>%
+  fit(Nausea ~ ., data = df)
+
+#####Comparing model results with a likelihood ratio test
+CompMod2 <- anova(mod3$fit, mod4$fit, test = "LRT")
+
+glance(mod3)
+glance(mod4)
+
+#The test above tells us that we should use the more complex model
+#with all the parameters. Glancing at both logistic models, mod4 (the complex one)
+#has a higher log likelihood and lower AIC value, making it the better fit
+#for the dataset.
+
+#Saving the comparison results
+saveRDS(CompMod1, file = here("results", "analysis", "LinearModelTable.rds"))
+saveRDS(CompMod2, file = here("results", "analysis", "LogisticModelTable.rds"))
+
 
   

@@ -1,0 +1,197 @@
+---
+title: "EDA"
+author: "Ryan Grunert"
+date: "10/12/2021"
+output: html_document
+---
+
+Data exploration script
+This script performs the exploratory data analysis on the processed dataset. 
+
+BodyTemp = Body temperature of that sampled person in Fahrenheit.
+Nausea = Whether that sampled person reported having nausea. Either yes or no.
+CoughIntensity = Whether that person had a cough and how intense it was, ranged from None, Mild, Moderate or Severe.
+Myalgia = Whether that person had myalgia and how intense it was, ranged from None, Mild, Moderate or Severe.
+ChillsSweats = Whether that person experienced chills and sweats. Either yes or no.
+SubjectiveFever = whether that person reported a subjective fever. Yes or no.
+
+```{r}
+library(tidyverse)
+library(here)
+
+data_location <- here::here("data", "processed_data", "processeddata.rds")
+df <- readRDS(data_location)
+```
+
+
+### Primary Outcome Variables
+Main continuous outcome: Body Temperature
+Main categorical outcome: Nausea
+
+Summary statistics of body temperature
+```{r}
+summary(df$BodyTemp)
+```
+
+The average body temperature of all those sampled is 98.9, which is slightly above the normal average of 98.6 degrees. The max is pretty high compared to the minimum, which is a cause for concern. Some outliers could be present.
+
+
+Histogram of the Nausea counts, there is almost double the number of people without nausea compared to those with nausea.
+```{r}
+plot1 <- ggplot(df) +
+  geom_histogram(aes(x = Nausea), stat = "count") +
+  ggtitle("Number of people with or without nausea") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Nausea") +
+  scale_y_continuous(name = "Count")
+
+plot1
+
+saveloc1 <- here("results", "exploration", "plot1.png")
+ggsave(filename = saveloc1, plot = plot1)
+```
+
+
+
+Below is a boxplot of body temperature with respect to whether or not the person has nausea.
+```{r}
+plot2 <- ggplot(df) +
+  geom_boxplot(aes(x = Nausea, y = BodyTemp)) +
+  ggtitle("Distribution of Body Temperature and Nausea") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Nausea") +
+  scale_y_continuous(name = "Body Temperature (F)")
+  
+plot2
+
+saveloc2 <- here("results", "exploration", "plot2.png")
+ggsave(filename = saveloc2, plot = plot2)
+```
+There is a slightly higher average body temperature when the person has nausea compared to the people that don't.
+
+
+### Predictor variables
+
+#### Body Temperature Plots
+
+The two boxplots below show the distribution of body temperature and cough intensity, and body temperature and myalgia.
+```{r}
+plot3 <- ggplot(df) +
+  geom_boxplot(aes(x = CoughIntensity, y = BodyTemp)) +
+  ggtitle("Distribution of Body Temperature and Cough Intensity") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Cough Intensity") +
+  scale_y_continuous(name = "Body Temperature (F)")
+
+plot4 <- ggplot(df) +
+  geom_boxplot(aes(x = Myalgia, y = BodyTemp)) +
+  ggtitle("Distribution of Body Temperature and Myalgia") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Intensity of Myalgia") +
+  scale_y_continuous(name = "Body Temperature (F)")
+
+plot3
+plot4
+
+saveloc3 <- here("results", "exploration", "plot3.png")
+ggsave(filename = saveloc3, plot = plot3)
+saveloc4 <- here("results", "exploration", "plot4.png")
+ggsave(filename = saveloc4, plot = plot4)
+
+```
+
+In general, when both the cough intensity and myalgia get more severe, the average body temperature tends to increase slightly.
+
+The below boxplot compares whether or not the people have chills and sweats to their recorded body temperatures.
+
+```{r}
+plot5 <- ggplot(df) +
+  geom_boxplot(aes(x = ChillsSweats, y = BodyTemp)) +
+  ggtitle("Distribution of Body Temperature and Chills and Sweats") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Chills and Sweats") +
+  scale_y_continuous(name = "Body Temperature (F)")
+
+plot5
+
+saveloc5 <- here("results", "exploration", "plot5.png")
+ggsave(filename = saveloc5, plot = plot5)
+
+```
+  
+There seems to be an association with a higher body temperature when the person has chills and sweats.
+
+This boxplot below compares whether or not the people have a subjective fever to change in recorded body temperature.
+
+```{r}
+plot6 <- ggplot(df) +
+  geom_boxplot(aes(x = SubjectiveFever, y = BodyTemp)) +
+  ggtitle("Distribution of Body Temperature and Subjective Fever") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Subjective Fever") +
+  scale_y_continuous(name = "Body Temperature (F)")
+
+plot6
+
+saveloc6 <- here("results", "exploration", "plot6.png")
+ggsave(filename = saveloc6, plot = plot6)
+```
+
+There seems to be an association with a higher body temperature when the person has a subjective fever.
+
+
+#### Nausea Plots
+Below are two heatmaps that both plot nausea. The first is a heatmap between cough intensity and nausea, and the second is between myalgia intensity and nausea. 
+```{r}
+saveloc7 <- here("results", "exploration", "plot7.png")
+saveloc8 <- here("results", "exploration", "plot8.png")
+
+
+plot7 <- df %>%
+  count(CoughIntensity, Nausea) %>%
+  ggplot() +
+  geom_tile(aes(x = CoughIntensity, y = Nausea, fill = n)) +
+  ggtitle("Distribution of Cough Intensity and Nausea") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Cough Intensity") +
+  scale_y_discrete(name = "Nausea") 
+
+plot8 <- df %>%
+  count(Myalgia, Nausea) %>%
+ggplot() +
+  geom_tile(aes(x = Myalgia, y = Nausea, fill = n)) +
+  ggtitle("Distribution of Myalgia Intensity and Nausea") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Myalgia Intensity") +
+  scale_y_discrete(name = "Nausea") 
+
+ggsave(filename = saveloc7, plot = plot7)
+ggsave(filename = saveloc8, plot = plot8)
+
+plot7
+plot8
+
+```
+Both moderate cough intensity and moderate myalgia intensity have the highest number of people when there's no nausea. Myalgia intensity looks to have more mild cases and no cases without nausea compared to cough intensity, and cough intensity has more severe cases than myalgia without nausea. Both of these variables have more cases without nausea than with nausea. 
+
+
+Below is a heatmap of subjective fever and nausea cases.
+```{r}
+saveloc9 <- here("results", "exploration", "plot9.png")
+
+plot9 <- df %>%
+  count(SubjectiveFever, Nausea) %>%
+ggplot() +
+  geom_tile(aes(x = SubjectiveFever, y = Nausea, fill = n)) +
+  ggtitle("Distribution of Subjective Fever and Nausea") +
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(name = "Subjective Fever") +
+  scale_y_discrete(name = "Nausea")
+
+ggsave(filename = saveloc9, plot = plot9)
+
+plot9
+```
+The highest number of cases were those with subjective fever and no nausea, and the lowest number was when people had nausea but no subjective fever. There looks to be somewhat of a pattern here. 
+
+
