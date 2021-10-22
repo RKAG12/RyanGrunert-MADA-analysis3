@@ -17,6 +17,7 @@ data_location <- here::here("data","processed_data","processeddata.rds")
 
 #load data. 
 df <- readRDS(data_location)
+view(df)
 
 ###########Data Splitting################
 #Putting 3/4 of the data into a training set
@@ -162,4 +163,110 @@ Nausea_aug3 %>%
   roc_auc(truth = Nausea, .pred_No)
 
 #For this model we get a ROC-AUC of 0.518, this model is not useful.
+
+
+############################### Alexandra Gil - Contribution ####################################
+
+#Fitting a linear Model to the continuous outcome = BodyTemp
+
+#################### 1. Linear module with all predictors #####################
+#Creating new recipe to fit the continuous outcome of interest (BodyTemp) to all predictors
+Bodytemp_rec <- recipe(BodyTemp ~ ., data = train_data)
+
+summary(Bodytemp_rec)#Shows all the types, roles, and sources for the variables in the training dataset
+
+#Building a linear model
+lm_mod <- 
+  linear_reg() %>% set_engine("lm")
+
+#Building the linear model workflow
+Bodytemp_wflow <- workflow() %>%
+  add_model(lm_mod) %>%
+  add_recipe(Bodytemp_rec)
+
+#Preparing the recipe and train the model
+Bodytemp_fit <- Bodytemp_wflow %>%
+  fit(data = train_data)
+#Object finalized recipe and fitted model objects
+
+#Extracting the model and recipe
+Bodytemp_fit %>%
+  extract_fit_parsnip() %>%
+  tidy()
+
+####################Model 1 Evaluation#####################
+#ln_mod = linear model
+#Bodytemp_rec = preprocessing recipe
+#Bodytemp_wflow = bundling the model and recipe together
+#Bodytemp_fit = trained our workflow using fit()
+
+#predict applies recipe to new data, and passes them to fitted mode
+
+####On the testing data
+predict(Bodytemp_fit, test_data)
+
+
+Bodytemp_aug <- augment(Bodytemp_fit, test_data)
+
+glimpse(Bodytemp_aug)   #To see what is in Bodytemp_aug, .pred was found at the end of the table
+
+#Getting RMSE ***Root Mean Square Error (RMSE) is a standard way to measure the error of a model 
+# in predicting quantitative data. 
+Bodytemp_aug %>% rmse(truth = BodyTemp, .pred)
+
+# The RMSE is 1.13
+
+#################### 2. Linear module with the main predictor (RunnyNose) #####################
+
+#This model only fits RunnyNose to the BodyTemp variable
+
+#Creating new recipe to fit the continuous outcome of interest (BodyTemp) to RunnyNose predictor
+
+Bodytemp_rec2 <- recipe(BodyTemp ~ RunnyNose, data = train_data)
+
+#Creating another linear model to use
+lm_mod2 <- 
+  linear_reg() %>% set_engine("lm")
+
+
+##Building the second lineal model workflow
+Bodytemp_wflow2 <- workflow() %>%
+  add_model(lm_mod2) %>%
+  add_recipe(Bodytemp_rec2)
+
+#Preparing the recipe and train the model
+Bodytemp_fit2 <- Bodytemp_wflow2 %>%
+  fit(data = train_data)
+
+#Looking at the new fit
+Bodytemp_fit2 %>%
+  extract_fit_parsnip() %>%
+  tidy()
+
+####################Model 2 Evaluation#####################
+#ln_mod = linear model
+#Bodytemp_rec2 = preprocessing recipe
+#Bodytemp_wflow2 = bundling the model and recipe together
+#Bodytemp_fit2 = trained our workflow using fit()
+
+#predict applies recipe to new data, and passes them to fitted mode
+
+####On the testing data
+predict(Bodytemp_fit2, test_data)
+
+Bodytemp_aug2 <- augment(Bodytemp_fit2, test_data)
+
+glimpse(Bodytemp_aug2)   #To see what is in Bodytemp_aug, .pred was found at the end of the table
+
+#Getting RMSE ***Root Mean Square Error (RMSE) is a standard way to measure the error of a model 
+# in predicting quantitative data. 
+Bodytemp_aug2 %>% rmse(truth = BodyTemp, .pred)
+
+# The RMSE is 1.20
+
+# The difference between RMSE for both linear models evaluated is 0.07. So, we could considered that both 
+# models are able to predict the main continuous outcome -BodyTemp- using all predictors or  just the main 
+# predictor-RunnyNose-. However, having that the root mean square error (RMSE) tells us the average distance 
+#between the predicted values from the model and the actual values in the dataset, we can say that the Model1 
+# with all predictor may be is the best option.
 
