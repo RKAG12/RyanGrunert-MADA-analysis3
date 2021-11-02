@@ -1,0 +1,150 @@
+---
+title: "Analysis Code"
+author: "Ryan Grunert"
+date: "11/1/2021"
+output: html_document
+---
+
+## Loading required packages
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(rsample)
+library(rpart)
+library(glmnet)
+library(ranger)
+```
+
+## Loading the Data and Setting the Seed
+```{r}
+data_location2 <- here::here("data","processed_data","PrePanalysisdata.rds")
+df2 <- readRDS(data_location2)
+set.seed(123)
+```
+
+## Data Setup
+The below code splits the data into 70% training and 30% testing using BodyTemp as stratification.
+```{r}
+###########Data Splitting################
+#Putting 7/10 of the data into a training set
+data_split <- initial_split(df2, prop = 7/10, strata = BodyTemp)
+
+#Creating data frames for the two sets
+train_data <- training(data_split)
+test_data <- testing(data_split)
+```
+
+This chunk is creating the CV folds for our data, there will be 5. This also creates the recipe for the model fitting, which is BodyTemp against all the predictors on the training data, and codes the predictors as dummy variables.
+```{r}
+folds <- vfold_cv(train_data, v = 5, repeats = 5, strata = BodyTemp)
+
+recBT <- recipe(BodyTemp ~ ., data = train_data) %>% step_dummy(all_predictors())
+
+```
+
+## Null Model Performance
+
+```{r}
+#sets the basic linear model for training data
+lm_mod <- linear_reg() %>% set_engine("lm") %>% set_mode("regression")
+
+#recipe for the null model on training data
+nullrecTrain <- recipe(BodyTemp ~ 1, data = train_data)
+
+#workflow for null model on training data
+nullmodel <- workflow() %>% add_model(lm_mod) %>% add_recipe(nullrecTrain)
+
+#fits the model to the training data
+FitNullTrainMod <- fit_resamples(nullmodel, resamples = folds)
+
+NullTrainMetrics <- collect_metrics(FitNullTrainMod)
+
+#recipe for the null model on testing data
+nullrecTest <- recipe(BodyTemp ~ 1, data = test_data)
+
+#workflow for null model on testing data
+nullmodelTest <- workflow() %>% add_model(lm_mod) %>% add_recipe(nullrecTest)
+
+#Fits the model to the testing data
+FitNullTestMod <- fit_resamples(nullmodel, resamples = folds)
+
+NullTestMetrics <- collect_metrics(FitNullTestMod)
+
+NullTrainMetrics
+NullTestMetrics
+```
+For both of the null models, the rmse is around 1.21 and there is no r squared because there is no variance in the model. 
+
+## Model Tuning and Fitting
+
+The steps (block of code) you should have here are 1) model specification, 2) workflow definition, 3) tune grid specification and 4) tuning using cross-validation and the tune_grid function.
+
+### Decision Tree Model
+This is creating a decision tree model and specifying the tuning grid for the hyperparameters. The grid gives us 25 possible different possible tuning combinations.
+```{r}
+#Model Specification
+tune_spec <- 
+  decision_tree(
+    cost_complexity = tune(),
+    tree_depth = tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+tune_spec
+
+```
+
+```{r}
+#Tuning grid specification
+tree_grid <- grid_regular(cost_complexity(),
+                          tree_depth(),
+                          levels = 5)
+tree_grid
+```
+
+```{r}
+#Workflow Definition
+tree_wf <- workflow() %>%
+  add_model(tune_spec) %>%
+  add_recipe(recBT)
+```
+
+```{r}
+#Tuning the model
+tree_res <- 
+  tree_wf %>% 
+  tune_grid(
+    resamples = folds,
+    grid = tree_grid
+    )
+```
+
+```{r}
+tree_res %>%
+  collect_metrics
+```
+
+
+
+
+
+
+LASSO Model
+```{r}
+
+```
+
+Random Forest Model
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
