@@ -11,18 +11,22 @@ library(tidyverse)
 library(tidymodels)
 library(rsample)
 library(rpart)
+library(rpart.plot)
 library(glmnet)
 library(ranger)
+library(vip)
 ```
 
 ## Loading the Data and Setting the Seed
+
+This loads the processed data from the "analysisscriptWeek3.R" file for this analysis.
 ```{r}
 data_location2 <- here::here("data","processed_data","PrePanalysisdata.rds")
 df2 <- readRDS(data_location2)
 set.seed(123)
 ```
 
-## Data Setup
+## Data and Null Model Setup
 The below code splits the data into 70% training and 30% testing using BodyTemp as stratification.
 ```{r}
 ###########Data Splitting################
@@ -38,12 +42,12 @@ This chunk is creating the CV folds for our data, there will be 5. This also cre
 ```{r}
 folds <- vfold_cv(train_data, v = 5, repeats = 5, strata = BodyTemp)
 
-recBT <- recipe(BodyTemp ~ ., data = train_data) %>% step_dummy(all_predictors())
+recBT <- recipe(BodyTemp ~ ., data = train_data) %>% step_dummy(all_nominal_predictors())
 
 ```
 
-## Null Model Performance
-
+### Null Model Performance
+The following code sets up Null models for both the training data and testing data. 
 ```{r}
 #sets the basic linear model for training data
 lm_mod <- linear_reg() %>% set_engine("lm") %>% set_mode("regression")
@@ -120,25 +124,322 @@ tree_res <-
 ```
 
 ```{r}
+#Collect the metrics (rmse) from the fit model
 tree_res %>%
-  collect_metrics
+  collect_metrics()
 ```
 
-
-
-
-
-
-LASSO Model
 ```{r}
-
+#Plotting the models' rmse and rsq values. As we can see the best plot has a depth of 1 and has an rmse value of under 1.2.
+tree_res %>% autoplot()
 ```
 
-Random Forest Model
 ```{r}
+#Choosing the model with the best metrics
+best_tree <- tree_res %>% select_best("rmse")
+```
+
+```{r}
+#Finalizing the workflow with the best model and metrics
+final_tree_wf <- tree_wf %>% finalize_workflow(best_tree)
+final_tree_wf
+```
+
+```{r}
+#Fitting the best model to the training data
+final_tree_fit <- final_tree_wf %>% fit(data = train_data)
+```
+The above code fits the best decision tree model to the training data.
+
+
+#### Decision Tree Diagnostic Plots
+
+```{r}
+#Model Predictions vs Actual Outcomes Graph
+rpart.plot(extract_fit_parsnip(final_tree_fit)$fit)
+
+
+final_tree_fit %>% extract_fit_parsnip() %>% vip()
+```
+The most important variables are Sneeze_Yes, RunnyNose_Yes, NasalCongestion_Yes, Weakness_3, Headache_Yes, and ItchyEye_Yes. The best tree model only has a depth of one that splits the training data, whether or not the person is sneezing.
+
+```{r}
+#Getting the predictions and residuals
+tree_residpredict <- final_tree_fit %>%
+  augment(new_data = train_data) %>%
+  select(.pred, BodyTemp) %>%
+  mutate(.resid = BodyTemp - .pred)
 
 ```
 
+```{r}
+#Plot for Predicted vs Observed Values
+tree_predobs_plot <- ggplot(tree_residpredict, aes(x = BodyTemp, y = .pred)) +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_point() +
+  xlab("Observed Values") + ylab("Predicted Values") +
+  ggtitle("Predicted vs. Observed Values for Decision Tree")
+tree_predobs_plot
+```
+
+```{r}
+#Plot for Predicted values vs residuals 
+tree_predresid_plot <- ggplot(tree_residpredict, aes(x = .pred, y = .resid)) +
+  geom_hline(yintercept = 0) +
+  geom_point() +
+  xlab("Predicted Values") + ylab("Residuals") +
+  ggtitle("Predicted Values vs Residuals for Decision Tree")
+tree_predresid_plot
+```
+
+The model is only predicting two values for BodyTemp, based on the single parameter of whether or not the patient sneezes.
+
+```{r}
+#Comparing the model to the null model
+best_tree <- show_best(tree_res, n = 1)
+best_null <- show_best(FitNullTrainMod)
+
+treevsnull <- bind_rows(best_tree, best_null)
+treevsnull
+```
+
+The best tree model has an rmse value of 1.189, while the null model has a value of 1.20. The null model has a lower standard error than the best tree model.
+
+
+
+### LASSO Model
+```{r}
+#Model Specification
+lasso_mod <- linear_reg(penalty = tune(), mixture = 1) %>%
+  set_engine("glmnet") %>% set_mode("regression")
+```
+Recipe is above
+
+```{r}
+#Workflow Definition
+lasso_wf <- workflow() %>%
+  add_model(lasso_mod) %>%
+  add_recipe(recBT)
+```
+
+```{r}
+#Tuning Grid Specification
+lasso_grid <- tibble(penalty = 10^seq(-4, -1, length.out = 30))
+```
+
+```{r}
+#Training and tuning the model
+lasso_res <- lasso_wf %>% tune_grid(
+  resamples = folds, grid = lasso_grid, 
+  control = control_grid(verbose = FALSE, save_pred = TRUE),
+  metrics = metric_set(rmse))
+
+collect_metrics(lasso_res)
+```
+
+```{r}
+#Looking at the top models
+top_lasso <- lasso_res %>%
+  show_best("rmse", n = 15) %>%
+  arrange(penalty)
+top_lasso
+```
+
+
+```{r}
+#Picking the best model and fitting it to the training data
+lasso_best_rmse <- lasso_res %>%
+  select_best("rmse")
+
+final_lasso_wf <- finalize_workflow(lasso_wf, lasso_best_rmse)
+
+#Fitting the best lasso model to training data
+final_lasso_fit <- final_lasso_wf %>% fit(data = train_data)
+```
+
+
+```{r}
+#Visualizing the models
+lasso_res %>% autoplot()
+
+lasso_res %>%
+  collect_metrics() %>%
+  ggplot(aes(penalty, mean)) +
+  geom_line(size = 1.5) +
+  scale_x_log10() 
+
+```
+
+#### Diagnostic Plots for LASSO Model
+
+```{r}
+#Getting the predictions and residuals
+lasso_residpredict <- final_lasso_fit %>%
+  augment(new_data = train_data) %>%
+  select(.pred, BodyTemp) %>%
+  mutate(.resid = BodyTemp - .pred)
+```
+
+```{r}
+#Plot for Predicted vs Observed Values
+lasso_predobs_plot <- ggplot(lasso_residpredict, aes(x = BodyTemp, y = .pred)) +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_point() +
+  xlab("Observed Values") + ylab("Predicted Values") +
+  ggtitle("Predicted vs. Observed Values for LASSO Model")
+lasso_predobs_plot
+
+```
+
+```{r}
+#Plot for Predicted values vs residuals
+lasso_predresid_plot <- ggplot(lasso_residpredict, aes(x = .pred, y = .resid)) +
+  geom_hline(yintercept = 0) +
+  geom_point() +
+  xlab("Predicted Values") + ylab("Residuals") +
+  ggtitle("Predicted Values vs Residuals for LASSO Model")
+lasso_predresid_plot
+```
+
+```{r}
+#Best LASSO look
+#Comparing the model to the null model
+best_lasso <- show_best(lasso_res, n = 1)
+best_null <- show_best(FitNullTrainMod)
+
+lassovsnull <- bind_rows(best_lasso, best_null)
+lassovsnull
+```
+The best lasso model has an rmse value of 1.153, while the null model has a value of 1.20. The lasso model also has a lower standard error than the null model. 
+
+
+
+### Random Forest Model
+
+```{r}
+#Model Specification
+rf_mod <- 
+  rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+  set_engine("ranger") %>% 
+  set_mode("regression")
+```
+
+```{r}
+#Workflow Definition
+rf_wf <- workflow() %>%
+  add_model(rf_mod) %>%
+  add_recipe(recBT)
+```
+
+```{r}
+#Tuning Model and Running It
+rf_res <- 
+  rf_wf %>% 
+  tune_grid(resamples = folds, grid = 25,
+            control_grid(save_pred = TRUE),
+            metrics = metric_set(rmse))
+collect_metrics(rf_res)
+rf_res %>% show_best(metric = "rmse")
+autoplot(rf_res)
+```
+
+```{r}
+#Picking the best model and fitting it to the training data
+top_rf_model <- select_best(rf_res)
+
+final_rf_wf <- rf_wf %>% finalize_workflow(top_rf_model)
+
+final_rf_fit <- final_rf_wf %>% fit(data = train_data)
+```
+
+#### Diagnostic Plots for Random Forest Model
+
+```{r}
+#Getting the predictions and residuals
+rf_residpredict <- final_rf_fit %>%
+  augment(new_data = train_data) %>%
+  select(.pred, BodyTemp) %>%
+  mutate(.resid = BodyTemp - .pred)
+```
+
+```{r}
+#Plot for Predicted vs Observed Values
+rf_predobs_plot <- ggplot(rf_residpredict, aes(x = BodyTemp, y = .pred)) +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_point() +
+  xlab("Observed Values") + ylab("Predicted Values") +
+  ggtitle("Predicted vs. Observed Values for Random Forest Model")
+rf_predobs_plot
+```
+
+```{r}
+#Plot for Predicted values vs residuals
+rf_predresid_plot <- ggplot(rf_residpredict, aes(x = .pred, y = .resid)) +
+  geom_hline(yintercept = 0) +
+  geom_point() +
+  xlab("Predicted Values") + ylab("Residuals") +
+  ggtitle("Predicted Values vs Residuals for Random Forest Model")
+rf_predresid_plot
+```
+
+```{r}
+#Best random forest model look
+#Comparing the model to the null model
+best_rf <- show_best(rf_res, n = 1)
+best_null <- show_best(FitNullTrainMod)
+
+rfvsnull <- bind_rows(best_rf, best_null)
+rfvsnull
+```
+The random forest model has an rmse value of 1.163, and the null model has a value of 1.20. The random forest also has a smaller standard error at 0.016 compared to the null model. 
+
+### Comparing all four models: Decision Tree, LASSO, Random Forest, and Null Model
+```{r}
+allcompare <- bind_rows(best_tree, best_lasso, best_rf, best_null)
+allcompare
+```
+The LASSO model has the lowest rmse value. None of the models are amazing, but the LASSO model is the best of the bunch. It doesn't seem likely that the predictors are very associated with the outcome. Based on the diagnostic plots it seems like the best choice to fit the predictors to the outcome.
+
+
+### Final Model Fiting on the Testing Set (LASSO)
+
+```{r}
+#Fitting the LASSO model that was determined to be the best to the test dataset
+lasso_test_fit <- final_lasso_wf %>% last_fit(split = data_split)
+collect_metrics(lasso_test_fit)
+```
+
+#### Final Model Diagnostics
+
+```{r}
+#Getting the predications and residuals
+test_residpredict <- lasso_test_fit %>%
+  augment() %>%
+  select(.pred, BodyTemp) %>%
+  mutate(.resid = BodyTemp - .pred)
+```
+
+```{r}
+#Plotting predictions vs observed values
+test_predobs_plot <- ggplot(test_residpredict, aes(x = BodyTemp, y = .pred)) +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_point() +
+  xlab("Observed Values") + ylab("Predicted Values") +
+  ggtitle("Predicted vs. Observed Values for LASSO Model on Test Data")
+test_predobs_plot
+```
+
+```{r}
+#Plot for Predicted values vs residuals
+test_predresid_plot <- ggplot(test_residpredict, aes(x = .pred, y = .resid)) +
+  geom_hline(yintercept = 0) +
+  geom_point() +
+  xlab("Predicted Values") + ylab("Residuals") +
+  ggtitle("Predicted Values vs Residuals for LASSO Model on Test Data")
+test_predresid_plot
+```
+
+Looking at both the metrics and diagnostic plots for both LASSO models, they are extremely similar. The rmse value did not change much, and the trend in the data isn't shown if there is one. It doesn't look like the predictors are very predictive for body temperature.
 
 
 
